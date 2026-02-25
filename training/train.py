@@ -139,7 +139,7 @@ class MovieRecommenderTrainer:
         
         # Clean and stem keywords
         df['keywords'] = df['keywords'].apply(
-            lambda x: [self.stemmer.stem(kw.lower().replace(" ", "")) for kw in x[:15]]  # Top 15 keywords
+            lambda x: [self.stemmer.stem(kw.lower().replace("", "")) for kw in x[:15]]  # Top 15 keywords
         )
         
         # Clean genres
