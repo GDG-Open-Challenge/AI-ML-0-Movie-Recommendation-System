@@ -213,7 +213,10 @@ class MovieRecommenderTrainer:
             max_df=0.7,  # More aggressive filtering
             stop_words='english',
             max_features=max_features,
-            sublinear_tf=True  # Use log scaling
+            sublinear_tf=True,
+            dtype=np.float32,
+            strip_accents='unicode',
+            token_pattern=r'\b[a-zA-Z][a-zA-Z]+\b'
         )
         
         tfidf_matrix = tfidf.fit_transform(df['soup'])
