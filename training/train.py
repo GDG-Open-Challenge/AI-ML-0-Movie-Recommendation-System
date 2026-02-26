@@ -139,25 +139,25 @@ class MovieRecommenderTrainer:
         
         # Clean and stem keywords
         df['keywords'] = df['keywords'].apply(
-            lambda x: [self.stemmer.stem(kw.lower().replace("", "")) for kw in x[:15]]  # Top 15 keywords
+            lambda x: [self.stemmer.stem(kw.lower()) for kw in x[:15]]  # Top 15 keywords
         )
         
         # Clean genres
         df['genres'] = df['genres'].apply(
-            lambda x: [genre.lower().replace(" ", "") for genre in x]
+            lambda x: [genre.lower() for genre in x]
         )
         
         # Clean companies (top 3, with weight)
         df['companies_weighted'] = df['companies'].apply(
-            lambda x: [x[0].lower().replace(" ", "")] * 2 if x and len(x) > 0 else []  # Weight first company
+            lambda x: [x[0].lower()] * 2 if x and len(x) > 0 else []  # Weight first company
         )
         df['companies_clean'] = df['companies'].apply(
-            lambda x: [comp.lower().replace(" ", "") for comp in x[:3]]
+            lambda x: [comp.lower() for comp in x[:3]]
         )
         
         # Clean countries
         df['countries_clean'] = df['countries'].apply(
-            lambda x: [country.lower().replace(" ", "") for country in x[:2]]
+            lambda x: [country.lower() for country in x[:2]]
         )
         
         # Create comprehensive soup feature
