@@ -144,7 +144,7 @@ class MovieRecommenderTrainer:
         
         # Clean genres
         df['genres'] = df['genres'].apply(
-            lambda x: [genre.lower().replace(" ", "") for genre in x]
+            lambda x: [genre.lower().strip() for genre in x]
         )
         
         # Clean companies (top 3, with weight)
@@ -152,7 +152,7 @@ class MovieRecommenderTrainer:
             lambda x: [x[0].lower().replace(" ", "")] * 2 if x and len(x) > 0 else []  # Weight first company
         )
         df['companies_clean'] = df['companies'].apply(
-            lambda x: [comp.lower().replace(" ", "") for comp in x[:3]]
+            lambda x: [comp.lower().strip() for comp in x[:3]]
         )
         
         # Clean countries
@@ -213,7 +213,10 @@ class MovieRecommenderTrainer:
             max_df=0.7,  # More aggressive filtering
             stop_words='english',
             max_features=max_features,
-            sublinear_tf=True  # Use log scaling
+            sublinear_tf=True,
+            dtype=np.float32,
+            strip_accents='unicode',
+            token_pattern=r'\b[a-zA-Z][a-zA-Z]+\b'
         )
         
         tfidf_matrix = tfidf.fit_transform(df['soup'])
