@@ -124,6 +124,19 @@ class MovieRecommender:
                 'rating': f"{movie['vote_average']:.1f}/10" if pd.notna(movie['vote_average']) else 'N/A',
                 'votes': f"{movie['vote_count']:,}" if pd.notna(movie['vote_count']) else 'N/A',
                 'similarity_score': f"{score:.3f}",
+'similarity_percent': f"{score*100:.2f}%",
+'confidence': (
+    "High" if score > 0.75 else
+    "Medium" if score > 0.5 else
+    "Low"
+),
+'recommendation_reason': (
+    "Highly similar metadata (genre, production, tags)"
+    if score > 0.75 else
+    "Moderately similar movie attributes"
+    if score > 0.5 else
+    "Loosely related content features"
+),
                 'imdb_id': movie['imdb_id'] if pd.notna(movie['imdb_id']) else None,
                 'poster_url': f"https://image.tmdb.org/t/p/w500{movie['poster_path']}" if pd.notna(movie['poster_path']) else None,
                 'google_link': f"https://www.google.com/search?q={'+'.join(movie['title'].split())}+movie",
