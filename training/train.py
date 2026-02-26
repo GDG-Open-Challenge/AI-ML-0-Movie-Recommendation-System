@@ -208,12 +208,13 @@ class MovieRecommenderTrainer:
         
         tfidf = TfidfVectorizer(
             analyzer='word',
-            ngram_range=(1, 2),
-            min_df=3,  # Increased for larger dataset
-            max_df=0.7,  # More aggressive filtering
+            ngram_range=(1, 1),
+            min_df=5,  # Increased for faster computation
+            max_df=0.5,  # More aggressive filtering
             stop_words='english',
             max_features=max_features,
-            sublinear_tf=True  # Use log scaling
+            sublinear_tf=True,  # Use log scaling
+            dtype=np.float32  # Use 32-bit floats for memory/speed efficiency
         )
         
         tfidf_matrix = tfidf.fit_transform(df['soup'])
