@@ -5,10 +5,11 @@ Optimized for TMDB Movies Dataset 2023 (930K+ movies)
 
 import pandas as pd
 import numpy as np
+import faiss
 from scipy.sparse import csr_matrix, save_npz
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import TruncatedSVD
+from sklearn.random_projection import SparseRandomProjection
 from nltk.stem.snowball import SnowballStemmer
 import pickle
 import json
@@ -198,7 +199,7 @@ class MovieRecommenderTrainer:
         # Adjust max_features based on dataset size
         n_movies = len(df)
         
-        max_features = 10000 # 50% memory reduction
+        max_features = 10000 # 50% memory reduction 
         
         print(f"Using max_features={max_features} for {n_movies} movies")
         
@@ -220,156 +221,113 @@ class MovieRecommenderTrainer:
         
         return tfidf_matrix, tfidf
     
-    def compute_similarity_matrix(self, tfidf_matrix):
-        """Compute similarity with optional dimensionality reduction"""
-        if self.use_svd and tfidf_matrix.shape[0] > 1000:
-            print(f"Applying SVD dimensionality reduction to {self.n_components} components...")
-            
-            # Adjust components based on matrix size
-            n_components = min(
-                self.n_components,
-                tfidf_matrix.shape[0] - 1,
-                tfidf_matrix.shape[1] - 1
-            )
-            
-            svd = TruncatedSVD(n_components=n_components, random_state=42)
-            reduced_matrix = svd.fit_transform(tfidf_matrix)
-            
-            explained_var = svd.explained_variance_ratio_.sum()
-            print(f"Explained variance ratio: {explained_var:.3f}")
-            print(f"Reduced matrix shape: {reduced_matrix.shape}")
-            
-            # For very large datasets, compute similarity in chunks
-            if reduced_matrix.shape[0] > 50000:
-                print("Computing similarity in chunks for large dataset...")
-                chunk_size = 10000
-                n_chunks = (reduced_matrix.shape[0] + chunk_size - 1) // chunk_size
-                
-                similarity_matrix = np.zeros((reduced_matrix.shape[0], reduced_matrix.shape[0]), dtype=np.float32)
-                
-                for i in range(n_chunks):
-                    start_i = i * chunk_size
-                    end_i = min((i + 1) * chunk_size, reduced_matrix.shape[0])
-                    
-                    chunk_sim = cosine_similarity(
-                        reduced_matrix[start_i:end_i],
-                        reduced_matrix
-                    )
-                    similarity_matrix[start_i:end_i, :] = chunk_sim
-                    
-                    if (i + 1) % 5 == 0:
-                        print(f"Processed {i+1}/{n_chunks} chunks")
-            else:
-                print("Computing cosine similarity...")
-                similarity_matrix = cosine_similarity(reduced_matrix)
-            
-            return similarity_matrix.astype(np.float32), svd
-        else:
-            print("Computing cosine similarity (no dimensionality reduction)...")
-            similarity_matrix = cosine_similarity(tfidf_matrix, tfidf_matrix)
-            return similarity_matrix.astype(np.float32), None
+    def reduce_dimensions_fast(self, tfidf_matrix):
+        print("Applying Fast Random Projection...")
+
+        # good balance between speed & accuracy
+        n_components = min(384, tfidf_matrix.shape[1] // 2)
+
+        rp = SparseRandomProjection(
+            n_components=n_components,
+            dense_output=True,
+            random_state=42
+        )
+
+        reduced_matrix = rp.fit_transform(tfidf_matrix).astype(np.float32)
+
+        print(f"Reduced matrix shape: {reduced_matrix.shape}")
+        return reduced_matrix, rp
+
     
-    def save_model(self, df, similarity_matrix, tfidf_vectorizer, svd_model=None):
-        """Save all model artifacts efficiently"""
+
+    def build_vector_index(self, embeddings):
+        print("Building FAISS vector index...")
+
+        # cosine similarity requires normalized vectors
+        faiss.normalize_L2(embeddings)
+
+        dim = embeddings.shape[1]
+
+        # HNSW = fast + accurate
+        index = faiss.IndexHNSWFlat(dim, 32)
+        index.hnsw.efConstruction = 200
+
+        index.add(embeddings)
+
+        print(f"Indexed {index.ntotal} movies")
+        return index
+    
+    def save_model(self, df, embeddings, tfidf_vectorizer, projection_model, index):
         print("Saving model artifacts...")
-        
-        # Save metadata DataFrame (essential columns only)
+
+        # metadata
         metadata_df = df[[
-            'id', 'title', 'release_date', 'primary_company', 
+            'id', 'title', 'release_date', 'primary_company',
             'genres', 'vote_average', 'vote_count', 'popularity',
             'overview', 'imdb_id', 'poster_path'
         ]].copy()
-        
+
         metadata_df.to_parquet(
             self.output_dir / 'movie_metadata.parquet',
             compression='gzip',
             index=True
         )
-        
-        # Save similarity matrix
-        print("Saving similarity matrix...")
-        if similarity_matrix.size > 10000000:  # > 10M elements
-            # Save as sparse for very large matrices
-            sparse_sim = csr_matrix(similarity_matrix)
-            save_npz(self.output_dir / 'similarity_matrix.npz', sparse_sim)
-            print(f"Saved as sparse matrix (size: {sparse_sim.data.nbytes / 1024**2:.1f} MB)")
-        else:
-            np.save(self.output_dir / 'similarity_matrix.npy', similarity_matrix)
-            print(f"Saved as dense matrix (size: {similarity_matrix.nbytes / 1024**2:.1f} MB)")
-        
-        # Save title to index mapping
+
+        # save embeddings
+        np.save(self.output_dir / 'embeddings.npy', embeddings)
+
+        # save FAISS index
+        faiss.write_index(index, str(self.output_dir / 'movie_index.faiss'))
+
+        # save title map
         title_to_idx = pd.Series(df.index, index=df['title']).to_dict()
         with open(self.output_dir / 'title_to_idx.json', 'w') as f:
             json.dump(title_to_idx, f)
-        
-        # Save TF-IDF vectorizer
+
+        # save vectorizer
         with open(self.output_dir / 'tfidf_vectorizer.pkl', 'wb') as f:
             pickle.dump(tfidf_vectorizer, f)
-        
-        # Save SVD model if used
-        if svd_model:
-            with open(self.output_dir / 'svd_model.pkl', 'wb') as f:
-                pickle.dump(svd_model, f)
-        
-        # Save configuration
-        config = {
-            'n_movies': len(df),
-            'use_svd': self.use_svd,
-            'n_components': self.n_components if svd_model else None,
-            'matrix_shape': similarity_matrix.shape,
-            'dataset': 'TMDB 2023 (930K movies)'
-        }
-        with open(self.output_dir / 'config.json', 'w') as f:
-            json.dump(config, f, indent=2)
-        
+
+        # save projection model
+        with open(self.output_dir / 'projection_model.pkl', 'wb') as f:
+            pickle.dump(projection_model, f)
+
         print(f"✅ Model saved to {self.output_dir}")
-        
-        # Print summary
-        total_size = sum(
-            f.stat().st_size 
-            for f in self.output_dir.iterdir() 
-            if f.is_file()
-        ) / 1024**2
-        print(f"Total model size: {total_size:.1f} MB")
-    
+
     def train(self, data_path, quality_threshold='medium', max_movies=None):
-        """
-        Complete training pipeline
-        
-        Args:
-            data_path: Path to CSV file or directory containing it
-            quality_threshold: 'low', 'medium', or 'high'
-            max_movies: Limit number of movies (None = all)
-        """
+
         print("="*80)
-        print("🎬 TMDB Movie Recommendation System Training")
+        print("🎬 TMDB Movie Recommendation System Training (ANN Version)")
         print("="*80)
-        
+
         # Load data
         df = self.load_data(data_path)
-        
+
         # Feature engineering
         df = self.clean_and_engineer_features(df, quality_threshold)
-        
-        # Limit dataset if specified
+
+        # Optional limit
         if max_movies and len(df) > max_movies:
             df = df.head(max_movies)
-            print(f"Limited to top {max_movies} movies by quality score")
-        
-        # Build TF-IDF matrix
+            print(f"Limited to top {max_movies} movies")
+
+        # TF-IDF
         tfidf_matrix, tfidf_vectorizer = self.build_tfidf_matrix(df)
-        
-        # Compute similarity
-        similarity_matrix, svd_model = self.compute_similarity_matrix(tfidf_matrix)
-        
-        # Save everything
-        self.save_model(df, similarity_matrix, tfidf_vectorizer, svd_model)
-        
+
+        # Fast dimensionality reduction
+        embeddings, projection_model = self.reduce_dimensions_fast(tfidf_matrix)
+
+        # Build search index
+        index = self.build_vector_index(embeddings)
+
+        # Save model
+        self.save_model(df, embeddings, tfidf_vectorizer, projection_model, index)
+
         print("="*80)
         print("✅ Training completed successfully!")
         print("="*80)
-        
-        return df, similarity_matrix
+
+        return df, embeddings
 
 
 # Example usage
@@ -409,6 +367,6 @@ if __name__ == "__main__":
     
     print(f"\n📊 Final Statistics:")
     print(f"   Movies in model: {len(df):,}")
-    print(f"   Similarity matrix: {sim_matrix.shape}")
-    print(f"   Memory usage: {sim_matrix.nbytes / 1024**2:.1f} MB")
+    print(f"Embedding matrix: {sim_matrix.shape}")
+    print(f"Memory usage: {sim_matrix.nbytes / 1024**2:.1f} MB")
 
