@@ -197,20 +197,16 @@ class MovieRecommenderTrainer:
         
         # Adjust max_features based on dataset size
         n_movies = len(df)
-        if n_movies < 10000:
-            max_features = 10000
-        elif n_movies < 100000:
-            max_features = 15000
-        else:
-            max_features = 20000
+        
+        max_features = 10000 # 50% memory reduction
         
         print(f"Using max_features={max_features} for {n_movies} movies")
         
         tfidf = TfidfVectorizer(
             analyzer='word',
-            ngram_range=(1, 2),
-            min_df=3,  # Increased for larger dataset
-            max_df=0.7,  # More aggressive filtering
+            ngram_range=(1, 1), #doubling speed
+            min_df=5,  # Increased for larger dataset, filters noise data
+            max_df=0.6,  # More aggressive filtering
             stop_words='english',
             max_features=max_features,
             sublinear_tf=True  # Use log scaling
