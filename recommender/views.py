@@ -12,6 +12,7 @@ from difflib import get_close_matches
 import pandas as pd
 import numpy as np
 from scipy.sparse import load_npz
+import pickle
 import json
 from django.conf import settings
 from django.http import JsonResponse
@@ -57,6 +58,12 @@ class MovieRecommender:
             progress_callback(40)
         if (self.model_dir / 'similarity_matrix.npz').exists():
             self.similarity_matrix = load_npz(self.model_dir / 'similarity_matrix.npz').toarray()
+        elif (self.model_dir / 'similarity_matrix.bin').exists():
+            with open(self.model_dir / 'similarity_matrix.bin', 'rb') as f:
+                self.similarity_matrix = pickle.load(f)
+        elif (self.model_dir / 'similarity_matrix.h5').exists():
+            with open(self.model_dir / 'similarity_matrix.h5', 'rb') as f:
+                self.similarity_matrix = pickle.load(f)
         else:
             self.similarity_matrix = np.load(self.model_dir / 'similarity_matrix.npy')
         if progress_callback:
