@@ -10,10 +10,20 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    'SECRET_KEY', 
-    'django-insecure-dev-key-change-in-production-12345'
-)
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-dev-key-for-development-only-change-in-production'
+        import warnings
+        warnings.warn(
+            "Using default SECRET_KEY for development. Set SECRET_KEY environment variable for production.",
+            RuntimeWarning
+        )
+    else:
+        raise ValueError(
+            "SECRET_KEY environment variable must be set in production. "
+            "Generate one with: python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'"
+        )
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
@@ -161,6 +171,10 @@ CACHES = {
     }
 }
 
+# Create logs directory if it doesn't exist
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+Path(LOGS_DIR).mkdir(parents=True, exist_ok=True)
+
 # Logging Configuration
 LOGGING = {
     'version': 1,
@@ -183,7 +197,7 @@ LOGGING = {
         },
         'file': {
             'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
+            'filename': os.path.join(LOGS_DIR, 'django.log'),
             'maxBytes': 1024 * 1024 * 5,  # 5 MB
             'backupCount': 5,
             'formatter': 'verbose',
