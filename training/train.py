@@ -8,7 +8,7 @@ import numpy as np
 from scipy.sparse import csr_matrix, save_npz
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import TruncatedSVD
+from sklearn.random_projection import GaussianRandomProjection
 from nltk.stem.snowball import SnowballStemmer
 import pickle
 import json
@@ -237,11 +237,9 @@ class MovieRecommenderTrainer:
                 tfidf_matrix.shape[1] - 1
             )
             
-            svd = TruncatedSVD(n_components=n_components, random_state=42)
+            svd = GaussianRandomProjection(n_components=n_components, random_state=42)
             reduced_matrix = svd.fit_transform(tfidf_matrix)
-            
-            explained_var = svd.explained_variance_ratio_.sum()
-            print(f"Explained variance ratio: {explained_var:.3f}")
+
             print(f"Reduced matrix shape: {reduced_matrix.shape}")
             
             # For very large datasets, compute similarity in chunks
