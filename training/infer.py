@@ -41,8 +41,16 @@ class MovieRecommender:
         if (self.model_dir / 'similarity_matrix.npz').exists():
             print("Loading sparse similarity matrix...")
             self.similarity_matrix = load_npz(self.model_dir / 'similarity_matrix.npz').toarray()
+        elif (self.model_dir / 'similarity_matrix.bin').exists():
+            print("Loading pickle similarity matrix (.bin)...")
+            with open(self.model_dir / 'similarity_matrix.bin', 'rb') as f:
+                self.similarity_matrix = pickle.load(f)
+        elif (self.model_dir / 'similarity_matrix.h5').exists():
+            print("Loading pickle similarity matrix (.h5)...")
+            with open(self.model_dir / 'similarity_matrix.h5', 'rb') as f:
+                self.similarity_matrix = pickle.load(f)
         else:
-            print("Loading dense similarity matrix...")
+            print("Loading dense similarity matrix (.npy)...")
             self.similarity_matrix = np.load(self.model_dir / 'similarity_matrix.npy')
         
         # Load title mapping
