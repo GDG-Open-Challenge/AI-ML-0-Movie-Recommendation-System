@@ -152,10 +152,14 @@ source venv/bin/activate
 # 4. Install dependencies
 pip install -r requirements.txt
 
-# 5. Run database migrations
+# 5. Set up environment variables (optional for development)
+cp .env.example .env
+# Edit .env and set SECRET_KEY (or use default for development)
+
+# 6. Run database migrations
 python manage.py migrate
 
-# 6. Start the development server
+# 7. Start the development server
 python manage.py runserver
 ```
 
