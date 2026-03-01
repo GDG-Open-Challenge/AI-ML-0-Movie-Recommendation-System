@@ -17,6 +17,8 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_http_methods
+from django.core.cache import cache
+from django_ratelimit.decorators import ratelimit
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +54,18 @@ class MovieRecommender:
         if progress_callback:
             progress_callback(25)
         
-        # Load similarity matrix (sparse or dense) (50%)
+        # Load similarity matrix (keep as sparse for memory efficiency) (50%)
         if progress_callback:
             progress_callback(40)
         if (self.model_dir / 'similarity_matrix.npz').exists():
-            self.similarity_matrix = load_npz(self.model_dir / 'similarity_matrix.npz').toarray()
+            # Keep as sparse matrix for better memory usage
+            self.similarity_matrix = load_npz(self.model_dir / 'similarity_matrix.npz')
+            self.is_sparse = True
+            logger.info("Loaded sparse similarity matrix")
         else:
             self.similarity_matrix = np.load(self.model_dir / 'similarity_matrix.npy')
+            self.is_sparse = False
+            logger.info("Loaded dense similarity matrix")
         if progress_callback:
             progress_callback(65)
         
@@ -101,8 +108,15 @@ class MovieRecommender:
         movie_idx = self.title_to_idx[matched_title]
         source_movie = self.metadata.iloc[movie_idx]
         
-        # Get similarity scores
-        sim_scores = list(enumerate(self.similarity_matrix[movie_idx]))
+        # Get similarity scores (handle sparse or dense matrix)
+        if self.is_sparse:
+            # For sparse matrix, get row and convert to array
+            sim_scores_array = self.similarity_matrix[movie_idx].toarray()[0]
+        else:
+            # For dense matrix, get row directly
+            sim_scores_array = self.similarity_matrix[movie_idx]
+        
+        sim_scores = list(enumerate(sim_scores_array))
         sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)[1:]  # Exclude self
         
         recommendations = []
@@ -197,6 +211,7 @@ def _get_recommender():
     return _RECOMMENDER
 
 
+@ratelimit(key='ip', rate='50/h', method='POST')
 @require_http_methods(["GET", "POST"])
 def main(request):
     """
@@ -204,6 +219,14 @@ def main(request):
     GET: Display search interface
     POST: Process search and display recommendations
     """
+    # Check if rate limited (only for POST)
+    if request.method == 'POST' and getattr(request, 'limited', False):
+        return render(request, 'recommender/index.html', {
+            'all_movie_names': [],
+            'total_movies': 0,
+            'error_message': 'Too many requests. Please try again in a few minutes.',
+        })
+    
     # Start loading model if not already loading/loaded
     _start_model_loading()
     
@@ -251,8 +274,17 @@ def main(request):
             }
         )
     
-    # Get recommendations
-    result = recommender.get_recommendations(movie_name, n=15)
+    # Try to get from cache first
+    cache_key = f'recommendations_{movie_name.lower()}_15'
+    cached_result = cache.get(cache_key)
+    
+    if cached_result is None:
+        # Get recommendations
+        result = recommender.get_recommendations(movie_name, n=15)
+        # Cache for 1 hour
+        cache.set(cache_key, result, timeout=3600)
+    else:
+        result = cached_result
     
     if 'error' in result:
         return render(
@@ -280,15 +312,31 @@ def main(request):
     )
 
 
+@ratelimit(key='ip', rate='100/h', method='GET')
 @require_http_methods(["GET"])
 def search_movies(request):
     """API endpoint for searching movies (autocomplete)"""
+    # Check if rate limited
+    if getattr(request, 'limited', False):
+        return JsonResponse({
+            'error': 'Rate limit exceeded. Please try again later.',
+            'movies': [],
+            'count': 0
+        }, status=429)
+    
     query = request.GET.get('q', '').strip()
     
     if len(query) < 2:
         return JsonResponse({'movies': [], 'count': 0})
     
     try:
+        # Try to get from cache first
+        cache_key = f'search_{query.lower()}'
+        cached_result = cache.get(cache_key)
+        
+        if cached_result is not None:
+            return JsonResponse(cached_result)
+        
         recommender = _get_recommender()
         
         if recommender is None:
@@ -296,10 +344,15 @@ def search_movies(request):
         
         matching_movies = recommender.search_movies(query, n=20)
         
-        return JsonResponse({
+        result = {
             'movies': matching_movies,
             'count': len(matching_movies)
-        })
+        }
+        
+        # Cache for 5 minutes
+        cache.set(cache_key, result, timeout=300)
+        
+        return JsonResponse(result)
         
     except Exception as e:
         logger.error(f"Error in search: {e}")
