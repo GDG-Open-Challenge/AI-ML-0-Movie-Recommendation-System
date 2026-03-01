@@ -9,7 +9,7 @@ import faiss
 from scipy.sparse import csr_matrix, save_npz
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.random_projection import SparseRandomProjection
+from sklearn.random_projection import GaussianRandomProjection
 from nltk.stem.snowball import SnowballStemmer
 import pickle
 import json
@@ -210,7 +210,8 @@ class MovieRecommenderTrainer:
             max_df=0.6,  # More aggressive filtering
             stop_words='english',
             max_features=max_features,
-            sublinear_tf=True  # Use log scaling
+            sublinear_tf=True,  # Use log scaling
+            dtype=np.float32  # Use 32-bit floats for memory/speed efficiency
         )
         
         tfidf_matrix = tfidf.fit_transform(df['soup'])
